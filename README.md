@@ -1,0 +1,2 @@
+# DiscordMusicBot
+ボイスチャンネルで音楽を再生できるDiscordBot
