@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -138,6 +140,16 @@ func stringToSnowFlakePointer(s string) *snowflake.ID {
 func stringToPointer(s string) *string {
 	sp := s
 	return &sp
+}
+
+func ParseQuery(input string) string {
+	trimmed := strings.TrimSpace(input)
+	u, err := url.ParseRequestURI(trimmed)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "scsearch:" + input
+	}
+
+	return input
 }
 
 func main() {
@@ -309,6 +321,7 @@ func main() {
 			}
 
 			query := i.ApplicationCommandData().GetOption("query").StringValue()
+			query = ParseQuery(query)
 
 			err := s.ChannelVoiceJoinManual(i.GuildID, vs.ChannelID, false, false)
 			if err != nil {
@@ -384,10 +397,29 @@ func main() {
 				},
 			))
 		case "stop":
+			var vs *discordgo.VoiceState
+			for _, guild := range s.State.Guilds {
+				if guild.ID == i.GuildID {
+					for _, state := range guild.VoiceStates {
+						if state.UserID == i.Member.User.ID {
+							vs = state
+							break
+						}
+					}
+				}
+			}
+
+			if vs == nil || vs.ChannelID == "" {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 先にボイスチャンネルに参加してください。"),
+				})
+				return
+			}
+
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "音楽を停止し、キューをクリアしてボイスチャンネルから退出します。",
+					Content: "⏹️音楽を停止し、キューをクリアしました。",
 				},
 			})
 
@@ -434,6 +466,25 @@ func main() {
 				Content: &msg,
 			})
 		case "skip":
+			var vs *discordgo.VoiceState
+			for _, guild := range s.State.Guilds {
+				if guild.ID == i.GuildID {
+					for _, state := range guild.VoiceStates {
+						if state.UserID == i.Member.User.ID {
+							vs = state
+							break
+						}
+					}
+				}
+			}
+
+			if vs == nil || vs.ChannelID == "" {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 先にボイスチャンネルに参加してください。"),
+				})
+				return
+			}
+
 			player := lavalinkClient.Player(stringToSnowFlake(i.GuildID))
 			if player == nil || player.Track == nil {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -455,6 +506,25 @@ func main() {
 				},
 			})
 		case "loop":
+			var vs *discordgo.VoiceState
+			for _, guild := range s.State.Guilds {
+				if guild.ID == i.GuildID {
+					for _, state := range guild.VoiceStates {
+						if state.UserID == i.Member.User.ID {
+							vs = state
+							break
+						}
+					}
+				}
+			}
+
+			if vs == nil || vs.ChannelID == "" {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 先にボイスチャンネルに参加してください。"),
+				})
+				return
+			}
+
 			gQueue := getGuildQueue(i.GuildID)
 
 			mode := i.ApplicationCommandData().GetOption("mode").StringValue()
@@ -544,7 +614,7 @@ func checkVoiceChannelEmpty(s *discordgo.Session, guildID string) {
 }
 
 func onTrackEnd(event *disgolink.PlayerTrackEndEvent) {
-	if event.Reason != lavalink.TrackEndReasonLoadFailed && event.Reason != lavalink.TrackEndReasonFinished {
+	if event.Reason == lavalink.TrackEndReasonLoadFailed {
 		return
 	}
 
