@@ -108,6 +108,22 @@ var (
 				},
 			},
 		},
+		{
+			Name:        "now",
+			Description: "現在再生している音楽を取得します",
+		},
+		{
+			Name:        "volume",
+			Description: "音楽のボリュームを指定します",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "volume",
+					Description: "音楽のボリュームを入力",
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Required:    true,
+				},
+			},
+		},
 	}
 	startTime time.Time
 
@@ -252,13 +268,16 @@ func main() {
 					Embeds: []*discordgo.MessageEmbed{
 						{
 							Title: "音楽Botの使い方",
-							Color: 16769280,
+							Color: 3447003,
 							Fields: []*discordgo.MessageEmbedField{
 								{Name: "/play [検索ワードまたはURL]", Value: "音楽を再生、または再生待ちリストに追加します。", Inline: false},
 								{Name: "/skip", Value: "現在再生中の曲をスキップします。", Inline: false},
-								{Name: "/loop", Value: "ループモードを切り替えます。", Inline: false},
+								{Name: "/loop [ループモード]", Value: "ループモードを切り替えます。", Inline: false},
 								{Name: "/queue", Value: "現在の再生待ちリストを表示します。", Inline: false},
 								{Name: "/stop", Value: "音楽の再生を停止し、Botを退出させます。", Inline: false},
+								{Name: "/now", Value: "現在再生している音楽を取得します", Inline: false},
+								{Name: "/volume [ボリューム]", Value: "音楽のボリュームを指定します", Inline: false},
+								{Name: "/help", Value: "Botの使い方を知ります", Inline: false},
 								{Name: "/about", Value: "Botの情報を表示します。", Inline: false},
 							},
 						},
@@ -280,7 +299,7 @@ func main() {
 				Embeds: &[]*discordgo.MessageEmbed{
 					{
 						Title: "音楽Botの情報",
-						Color: 16769280,
+						Color: 3447003,
 						Fields: []*discordgo.MessageEmbedField{
 							{
 								Name:   "サーバー数",
@@ -439,7 +458,7 @@ func main() {
 
 			if currentTrack == nil && len(gQueue.Tracks) == 0 {
 				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-					Content: stringToPointer("キューは空っぽです。"),
+					Content: stringToPointer("❌ キューは空っぽです。"),
 				})
 				return
 			}
@@ -549,6 +568,77 @@ func main() {
 				Data: &discordgo.InteractionResponseData{
 					Content: fmt.Sprintf("🔁 ループモードを %s に変更しました。", currentLoop.String()),
 				},
+			})
+		case "now":
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			})
+
+			player := lavalinkClient.Player(stringToSnowFlake(i.GuildID))
+			if player == nil || player.Track == nil {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 現在は何も再生していません。"),
+				})
+				return
+			}
+
+			currentTrack := player.Track
+
+			embed := &discordgo.MessageEmbed{
+				Title:       currentTrack.Info.Title,
+				Description: currentTrack.Info.Author,
+				Color:       3447003,
+			}
+
+			if currentTrack.Info.ArtworkURL != nil && *currentTrack.Info.ArtworkURL != "" {
+				embed.Thumbnail = &discordgo.MessageEmbedThumbnail{
+					URL: *currentTrack.Info.ArtworkURL,
+				}
+			}
+
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Embeds: &[]*discordgo.MessageEmbed{
+					embed,
+				},
+			})
+		case "volume":
+			var vs *discordgo.VoiceState
+			for _, guild := range s.State.Guilds {
+				if guild.ID == i.GuildID {
+					for _, state := range guild.VoiceStates {
+						if state.UserID == i.Member.User.ID {
+							vs = state
+							break
+						}
+					}
+				}
+			}
+
+			if vs == nil || vs.ChannelID == "" {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 先にボイスチャンネルに参加してください。"),
+				})
+				return
+			}
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			})
+
+			player := lavalinkClient.Player(stringToSnowFlake(i.GuildID))
+
+			volume := i.ApplicationCommandData().GetOption("volume").IntValue()
+			intVolume := int(volume)
+			if intVolume >= 151 {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ ボリュームは150%まで指定できます"),
+				})
+				return
+			}
+
+			player.Update(context.TODO(), disgolink.WithVolume(intVolume), disgolink.WithTrack(*player.Track), disgolink.WithPosition(player.State.Position))
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: stringToPointer(fmt.Sprintf("🔊 音量を %s％ に設定しました。", strconv.Itoa(intVolume))),
 			})
 		}
 	})
