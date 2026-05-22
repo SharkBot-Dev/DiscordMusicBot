@@ -66,7 +66,13 @@ var (
 					Name:        "query",
 					Description: "検索ワード&音楽Urlを入力",
 					Type:        discordgo.ApplicationCommandOptionString,
-					Required:    true,
+					Required:    false,
+				},
+				{
+					Name:        "file",
+					Description: "ファイルをアップロード",
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Required:    false,
 				},
 			},
 		},
@@ -339,8 +345,33 @@ func main() {
 				return
 			}
 
-			query := i.ApplicationCommandData().GetOption("query").StringValue()
-			query = ParseQuery(query)
+			options := i.ApplicationCommandData().Options
+			optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption)
+			for _, opt := range options {
+				optionMap[opt.Name] = opt
+			}
+
+			var query string
+
+			if fileOpt, exists := optionMap["file"]; exists {
+				attachmentID := fileOpt.Value.(string)
+				if attachment, ok := i.ApplicationCommandData().Resolved.Attachments[attachmentID]; ok {
+					query = attachment.URL
+				}
+			}
+
+			if query == "" {
+				if queryOpt, exists := optionMap["query"]; exists {
+					query = ParseQuery(queryOpt.StringValue())
+				}
+			}
+
+			if query == "" {
+				s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+					Content: stringToPointer("❌ 検索ワード、URL、またはファイルのいずれかを指定してください。"),
+				})
+				return
+			}
 
 			err := s.ChannelVoiceJoinManual(i.GuildID, vs.ChannelID, false, false)
 			if err != nil {
@@ -600,6 +631,7 @@ func main() {
 				Embeds: &[]*discordgo.MessageEmbed{
 					embed,
 				},
+				Content: stringToPointer("🎵 再生中の曲を取得しました👇"),
 			})
 		case "volume":
 			var vs *discordgo.VoiceState
